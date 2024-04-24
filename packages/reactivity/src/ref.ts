@@ -26,11 +26,12 @@ class RefImpl {
     if (newValue !== this.rawValue) {
       this.rawValue = newValue; // 更新值
       this._value = newValue;
+      debugger;
       triggerRefValue(this);
     }
   }
 }
-function trackRefValue(ref) {
+export function trackRefValue(ref) {
   if (activeEffect) {
     trackEffect(
       activeEffect,
@@ -38,7 +39,7 @@ function trackRefValue(ref) {
     );
   }
 }
-function triggerRefValue(ref) {
+export function triggerRefValue(ref) {
   let dep = ref.dep;
   if (dep) {
     triggerEffects(dep); // 触发依赖更新
@@ -86,4 +87,8 @@ export function proxyRefs(objectWithRef) {
       }
     },
   });
+}
+
+export function isRef(value) {
+  return value && value.__v_isRef;
 }
