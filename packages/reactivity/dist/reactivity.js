@@ -219,7 +219,6 @@ var RefImpl = class {
     if (newValue !== this.rawValue) {
       this.rawValue = newValue;
       this._value = newValue;
-      debugger;
       triggerRefValue(this);
     }
   }
@@ -228,7 +227,7 @@ function trackRefValue(ref2) {
   if (activeEffect) {
     trackEffect(
       activeEffect,
-      ref2.dep = createDep(() => ref2.dep = void 0, "undefined")
+      ref2.dep = ref2.dep || createDep(() => ref2.dep = void 0, "undefined")
     );
   }
 }
