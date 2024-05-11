@@ -1,5 +1,8 @@
 import { ShapeFlags } from "@vue/shared";
-import { isSameVnode } from "./createVnode";
+import { Fragment, Text, isSameVnode } from "./createVnode";
+import getSequence from "./seq";
+import { ReactiveEffect, reactive } from "@vue/reactivity";
+import { queueJob } from "./scheduler";
 
 export function createRenderer(renderOptions) {
   // core中不关心如何渲染
@@ -70,7 +73,7 @@ export function createRenderer(renderOptions) {
       unmount(child);
     }
   };
-
+  // vue3 中分为两种 全量diff（递归diff） 快速diff(靶向更新)->基于模板编译的
   const patchKeyedChildren = (c1, c2, el) => {
     // 比较两个儿子的差异更新el
     // appendChild  removeChild  inserBefore
@@ -158,6 +161,13 @@ export function createRenderer(renderOptions) {
       let s2 = i;
 
       const keyToNewIndexMap = new Map(); // 做一个映射表用于快速查找， 看老的是否在新的里面还有，没有就删除，有的话就更新
+      let toBePatched = e2 - s2 + 1; // 要倒序插入的个数
+
+      let newIndexToOldMapIndex = new Array(toBePatched).fill(0);
+
+      // [4,2,3,0]  -> [1,2] 根据最长递增子序列求出对应的 索引结果
+
+      // 格局新的节点，找到对应老的位置
 
       for (let i = s2; i <= e2; i++) {
         const vnode = c2[i];
@@ -171,17 +181,21 @@ export function createRenderer(renderOptions) {
           unmount(vnode);
         } else {
           // 比较前后节点的差异，更新属性和儿子
+          // 我们i 可能是0的情况，为了保证0 是没有比对过的元素，直接 i+1
+          newIndexToOldMapIndex[newIndex - s2] = i + 1; // [5,3,4,0]
           patch(vnode, c2[newIndex], el); // 服用
         }
       }
+
       // 调整顺序
       // 我们可以按照新的队列 倒序插入insertBefore 通过参照物往前面插入
 
       // 插入的过程中，可能新的元素的多，需要创建
 
-      let toBePatched = e2 - s2 + 1; // 要倒序插入的个数
-
       // 先从索引为3的位置倒序插入
+
+      let increasingSeq = getSequence(newIndexToOldMapIndex);
+      let j = increasingSeq.length - 1; // 索引
       for (let i = toBePatched - 1; i >= 0; i--) {
         // 3 2 1 0
         let newIndex = s2 + i; // h 对应的索引，找他的下一个元素作为参照物，来进行插入
@@ -191,7 +205,11 @@ export function createRenderer(renderOptions) {
           // 新列表中新增的元素
           patch(null, vnode, el, anchor); // 创建h插入
         } else {
-          hostInsert(vnode.el, el, anchor); // 接着倒序插入
+          if (i == increasingSeq[j]) {
+            j--; // 做了diff算法有的优化
+          } else {
+            hostInsert(vnode.el, el, anchor); // 接着倒序插入
+          }
         }
       }
       // 倒序比对每一个元素，做插入操作
@@ -253,7 +271,99 @@ export function createRenderer(renderOptions) {
 
     patchChildren(n1, n2, el);
   };
+  const processText = (n1, n2, container) => {
+    if (n1 == null) {
+      // 1.虚拟节点要关联真实节点
+      // 2.将节点插入到页面中
+      hostInsert((n2.el = hostCreateText(n2.children)), container);
+    } else {
+      const el = (n2.el = n1.el);
+      if (n1.children !== n2.children) {
+        hostSetText(el, n2.children);
+      }
+    }
+  };
   // 渲染走这里，更新也走这里
+  const processFragment = (n1, n2, container) => {
+    if (n1 == null) {
+      mountChildren(n2.children, container);
+    } else {
+      patchChildren(n1, n2, container);
+    }
+  };
+  // 初始化属性
+  const initProps = (instance, rawProps) => {
+    const props = {};
+    const attrs = {};
+    const propsOptions = instance.propsOptions || {}; // 组件中定义的
+    if (rawProps) {
+      for (let key in rawProps) {
+        // 用所有的来分裂
+        const value = rawProps[key]; // value String | number
+        if (key in propsOptions) {
+          // propsOptions[key]   === value
+          props[key] = value; // props 不需要深度代理，组件不能更改props
+        } else {
+          attrs[key] = value;
+        }
+      }
+    }
+    instance.attrs = attrs;
+    instance.props = reactive(props);
+  };
+  const mountComponent = (vnode, container, anchor) => {
+    // 组件可以基于自己的状态重新渲染，effect
+    const { data = () => {}, render, props: propsOptions = {} } = vnode.type;
+    const state = reactive(data()); // 组件的状态
+    const instance = {
+      state, // 状态
+      vnode, // 组件的虚拟节点
+      subTree: null, // 子树
+      isMounted: false, // 是否挂载完成
+      update: null, // 组件的更新的函数
+      props: {},
+      attrs: {},
+      propsOptions,
+      component: null,
+    };
+
+    // 根据propsOptions 来区分出 props,attrs
+    vnode.component = instance;
+    // 元素更新  n2.el = n1.el
+    // 组件更新  n2.component.subTree.el =  n1.component.subTree.el
+
+    initProps(instance, vnode.props);
+
+    console.log(instance);
+    const componentUpdateFn = () => {
+      // 我们要在这里面区分，是第一次还是之后的
+      if (!instance.isMounted) {
+        const subTree = render.call(state, state);
+        patch(null, subTree, container, anchor);
+        instance.isMounted = true;
+        instance.subTree = subTree;
+      } else {
+        // 基于状态的组件更新
+        const subTree = render.call(state, state);
+        patch(instance.subTree, subTree, container, anchor);
+        instance.subTree = subTree;
+      }
+    };
+
+    const effect = new ReactiveEffect(componentUpdateFn, () =>
+      queueJob(update)
+    );
+
+    const update = (instance.update = () => effect.run());
+    update();
+  };
+  const processComponent = (n1, n2, container, anchor) => {
+    if (n1 === null) {
+      mountComponent(n2, container, anchor);
+    } else {
+      // 组件的更新
+    }
+  };
   const patch = (n1, n2, container, anchor = null) => {
     if (n1 == n2) {
       // 两次渲染同一个元素直接跳过即可
@@ -264,10 +374,30 @@ export function createRenderer(renderOptions) {
       unmount(n1);
       n1 = null; // 就会执行后续的n2的初始化
     }
-    processElement(n1, n2, container, anchor); // 对元素处理
+    const { type, shapeFlag } = n2;
+    switch (type) {
+      case Text:
+        processText(n1, n2, container);
+        break;
+      case Fragment:
+        processFragment(n1, n2, container);
+        break;
+      default:
+        if (shapeFlag & ShapeFlags.ELEMENT) {
+          processElement(n1, n2, container, anchor); // 对元素处理
+        } else if (shapeFlag & ShapeFlags.COMPONENT) {
+          // 对组件的处理，vue3中函数式组件，已经废弃了，没有性能节约
+          processComponent(n1, n2, container, anchor);
+        }
+    }
   };
-
-  const unmount = (vnode) => hostRemove(vnode.el);
+  const unmount = (vnode) => {
+    if (vnode.type === Fragment) {
+      unmountChildren(vnode.children);
+    } else {
+      hostRemove(vnode.el);
+    }
+  };
   // 多次调用render 会进行虚拟节点的比较，在进行更新
   const render = (vnode, container) => {
     if (vnode == null) {
@@ -275,10 +405,11 @@ export function createRenderer(renderOptions) {
       if (container._vnode) {
         unmount(container._vnode);
       }
+    } else {
+      // 将虚拟节点变成真实节点进行渲染
+      patch(container._vnode || null, vnode, container);
+      container._vnode = vnode;
     }
-    // 将虚拟节点变成真实节点进行渲染
-    patch(container._vnode || null, vnode, container);
-    container._vnode = vnode;
   };
   return {
     render,

@@ -8,31 +8,30 @@
   <body>
     <div id="app"></div>
     <script type="module">
-      // import {
-      //   createRenderer,
-      //   render,
-      //   Fragment,
-      //   h,
-      //   Text,
-      // } from "/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-browser.prod.js";
-      import { render, h, Text, Fragment } from "./runtime-dom.js";
+      import {
+        createRenderer,
+        render,
+        Fragment,
+        h,
+        Text,
+      } from "/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-browser.js";
+      // import { render, h, Text, Fragment } from "./runtime-dom.js";
 
       // 这就是一个vue组件
-
-      // 属性 attrs(非响应式的)  + props(响应式的)
-      // 所有属性  - propsOptions = attrs
       const VueComponent = {
-        props: {
-          // defineProps()
-          name: String,
-          age: Number,
+        data() {
+          return { name: "jw", age: 30 };
         },
         render(proxy) {
-          console.log(proxy);
+          console.log("render");
+          setTimeout(() => {
+            this.age++;
+            this.age++;
+          }, 1000);
           // this == 组件的实例  内部不会通过类来产生实例了
-          return h("div", [
-            h(Text, "my name is " + proxy.$attrs.name),
-            h("a", proxy.$attrs.age),
+          return h(Fragment, [
+            h(Text, "my name is " + proxy.name),
+            h("a", proxy.age),
           ]);
         },
       };
