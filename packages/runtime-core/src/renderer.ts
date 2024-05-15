@@ -293,6 +293,11 @@ export function createRenderer(renderOptions) {
     }
   };
 
+  const updateComponentPreRender = (instance, next) => {
+    instance.next = null;
+    instance.vnode = next; // instance.props
+    updataProps(instance, instance.props, next.props);
+  };
   function setupRenderEffect(instance, container, anchor) {
     const { render } = instance;
     const componentUpdateFn = () => {
@@ -304,6 +309,13 @@ export function createRenderer(renderOptions) {
         instance.subTree = subTree;
       } else {
         // 基于状态的组件更新
+
+        const { next } = instance;
+        if (next) {
+          // 更新属性和插槽
+          updateComponentPreRender(instance, next);
+          // slots , props
+        }
         const subTree = render.call(instance.proxy, instance.proxy);
         patch(instance.subTree, subTree, container, anchor);
         instance.subTree = subTree;
@@ -358,7 +370,6 @@ export function createRenderer(renderOptions) {
         // 用新的覆盖掉所有老的
         instance.props[key] = nextProps[key]; // 更新
       }
-
       for (let key in instance.props) {
         // 删除老的多于的
         if (!(key in nextProps)) {
@@ -368,13 +379,25 @@ export function createRenderer(renderOptions) {
       // instance.props.address = '上海'
     }
   };
+  const shouldComponentUpdate = (n1, n2) => {
+    const { props: prevProps, children: prevChildren } = n1;
+    const { props: nextProps, children: nextChildren } = n2;
+
+    if (prevChildren || nextChildren) return true; // 有插槽直接走重新渲染即可
+
+    if (prevProps === nextProps) return false;
+
+    // 如果属性不一致实则更新
+    return hasPropsChange(prevProps, nextProps);
+
+    // updataProps(instance, prevProps, nextProps); // children   instance.component.proxy
+  };
   const updateComponent = (n1, n2) => {
     const instance = (n2.component = n1.component); // 复用组件的实例
-
-    const { props: prevProps } = n1;
-    const { props: nextProps } = n2;
-
-    updataProps(instance, prevProps, nextProps); // children   instance.component.proxy
+    if (shouldComponentUpdate(n1, n2)) {
+      instance.next = n2; // 如果调用update 有next属性，说明是属性更新，插槽更新
+      instance.update(); // 让更新逻辑统一
+    }
   };
   const processComponent = (n1, n2, container, anchor) => {
     if (n1 === null) {
@@ -412,8 +435,11 @@ export function createRenderer(renderOptions) {
     }
   };
   const unmount = (vnode) => {
+    const { shapeFlag } = vnode;
     if (vnode.type === Fragment) {
       unmountChildren(vnode.children);
+    } else if (shapeFlag & ShapeFlags.COMPONENT) {
+      unmount(vnode.component.subTree);
     } else {
       hostRemove(vnode.el);
     }

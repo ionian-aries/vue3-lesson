@@ -15,7 +15,6 @@
       //   h,
       //   Text,
       //   ref,
-      //   getCurrentInstance,
       // } from "/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-browser.prod.js";
       import { render, h, Text, Fragment, ref } from "./runtime-dom.js";
 
@@ -23,25 +22,27 @@
       // 解决反复横跳问题  computed watch
       // setup可以返回render函数
 
-      const VueComponent = {
-        setup(props, { emit, expose, slots, attrs }) {
+      const RenderComponent = {
+        setup(props, { emit, attrs, expose, slots }) {
           return (proxy) => {
-            return h(
-              "button",
-              { onClick: () => emit("myEvent", 100) },
-              "点我啊"
-            );
+            console.log(arguments);
+            return h(Fragment, [slots.footer("fff"), slots.header("hhh")]);
           };
         },
       };
-      // 给组件绑定事件 <div @myEvent>
+      const VueComponent = {
+        setup(props) {
+          return (proxy) => {
+            return h(RenderComponent, null, {
+              // 格局格式来区分
+              header: (t) => h("header", "header" + t),
+              footer: (t) => h("footer", "footer" + t),
+            });
+          };
+        },
+      };
 
-      // vnode.type.props
-      render(h(VueComponent, { onMyEvent: (value) => alert(value) }), app);
-
-      setTimeout(() => {
-        render(h(null, { onMyEvent: (value) => alert(value) }), app);
-      }, 1000);
+      render(h(VueComponent, {}), app);
     </script>
   </body>
 </html>
