@@ -19,28 +19,31 @@
 
       // 这就是一个vue组件
 
-      // 属性 attrs(非响应式的)  + props(响应式的)
-      // 所有属性  - propsOptions = attrs
-      const VueComponent = {
+      // 组件更新 有三种方式 （状态， 属性(props) ， 插槽（也是属性 children））
+
+      const RenderComponent = {
         props: {
-          // defineProps()
-          name: String,
-          age: Number,
+          address: String,
         },
-        render(proxy) {
-          console.log(proxy);
-          // this == 组件的实例  内部不会通过类来产生实例了
-          return h("div", [
-            h(Text, "my name is " + proxy.$attrs.name),
-            h("a", proxy.$attrs.age),
+        render() {
+          return h(Text, this.address);
+        },
+      };
+
+      const VueComponent = {
+        // instance.update
+        data() {
+          return { flag: true };
+        },
+        render() {
+          return h(Fragment, null, [
+            h("button", { onClick: () => (this.flag = !this.flag) }, "点我啊"),
+            h(RenderComponent, { address: this.flag ? "北京" : "上海" }),
           ]);
         },
       };
 
-      // template -> render
-      // 组件两个虚拟节点组成  h(VueComponent)  = vnode  产生的是组件内的虚拟节点
-      // render函数返回的虚拟节点，这个虚拟节点才是最终要渲染的内容  = subTree
-      render(h(VueComponent, { a: 1, b: 2, name: "jw", age: 30 }), app);
+      render(h(VueComponent, {}), app);
     </script>
   </body>
 </html>
