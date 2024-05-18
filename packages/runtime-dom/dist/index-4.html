@@ -7,8 +7,6 @@
   </head>
   <body>
     <div id="app"></div>
-    <div id="root"></div>
-    <div id="root2"></div>
     <script type="module">
       // import {
       //   createRenderer,
@@ -24,7 +22,6 @@
       //   onUpdated,
       //   provide,
       //   inject,
-      //   Teleport, // == render
       // } from "/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-browser.prod.js";
       import {
         render,
@@ -39,14 +36,44 @@
         getCurrentInstance,
         provide,
         inject,
-        Teleport,
       } from "./runtime-dom.js";
 
-      render(h(Teleport, { to: "#root" }, [123, "abc"]), "aaaaa");
+      const P3 = {
+        P3: 1,
+        setup(props) {
+          const name = inject("name");
+          console.log(name);
+          const age = inject("age", 30);
+          return () => {
+            return h("div", [name.value, age]);
+          };
+        },
+      };
+      const P2 = {
+        P2: 1,
+        render() {
+          return h(P3);
+        },
+      };
+      const P1 = {
+        P1: 1,
+        setup(props) {
+          const name = ref("jw");
 
-      setTimeout(() => {
-        render(null, app);
-      }, 1000);
+          setTimeout(() => {
+            name.value = "handsome jw";
+          }, 1000);
+          provide("name", name);
+
+          return () => h(P2);
+        },
+      };
+      // 在父组件中提供数据，后代组件中获取数据
+      render(h(P1), app);
+
+      // 将p1的provide 给p2
+      // 将p2的provide 给p3
+      // p1 -> p2 -> p3  -> p4  -> p5
     </script>
   </body>
 </html>

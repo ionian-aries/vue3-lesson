@@ -1,7 +1,7 @@
 import { proxyRefs, reactive } from "@vue/reactivity";
 import { ShapeFlags, hasOwn, isFunction } from "@vue/shared";
 
-export function createComponentInstance(vnode) {
+export function createComponentInstance(vnode, parent) {
   const instance = {
     data: null, // 状态
     vnode, // 组件的虚拟节点
@@ -16,6 +16,11 @@ export function createComponentInstance(vnode) {
     proxy: null, // 用来代理 props attrs,data 让用户更方便的使用
     setupState: {},
     exposed: null,
+    parent,
+    // p1 -> p2 -> p3
+    // 所有的组件provide的都一样
+
+    provides: parent ? parent.provides : Object.create(null),
   };
   return instance;
 }
@@ -110,7 +115,9 @@ export function setupComponent(instance) {
         handler && handler(...payload);
       },
     };
+    setCurrentInstance(instance);
     const setupResult = setup(instance.props, setupContext);
+    unsetCurrentInstance();
 
     if (isFunction(setupResult)) {
       instance.render = setupResult;
@@ -118,7 +125,6 @@ export function setupComponent(instance) {
       instance.setupState = proxyRefs(setupResult); // 将返回的值做脱ref
     }
   }
-
   if (!isFunction(data)) {
     console.warn("data option must be a function");
   } else {
@@ -130,3 +136,13 @@ export function setupComponent(instance) {
     instance.render = render;
   }
 }
+export let currentInstance = null;
+export const getCurrentInstance = () => {
+  return currentInstance;
+};
+export const setCurrentInstance = (instance) => {
+  currentInstance = instance;
+};
+export const unsetCurrentInstance = () => {
+  currentInstance = null;
+};

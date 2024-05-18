@@ -1,4 +1,5 @@
-import { ShapeFlags, isObject, isString } from "@vue/shared";
+import { ShapeFlags, isFunction, isObject, isString } from "@vue/shared";
+import { isTeleport } from "./Teleport";
 
 export const Text = Symbol("Text");
 export const Fragment = Symbol("Fragment");
@@ -13,8 +14,12 @@ export function isSameVnode(n1, n2) {
 export function createVnode(type, props, children?) {
   const shapeFlag = isString(type)
     ? ShapeFlags.ELEMENT // 元素
+    : isTeleport(type)
+    ? ShapeFlags.TELEPORT
     : isObject(type)
-    ? ShapeFlags.STATEFUL_COMPONENT // 组件
+    ? ShapeFlags.STATEFUL_COMPONENT
+    : isFunction(type)
+    ? ShapeFlags.FUNCTIONAL_COMPONENT // 组件
     : 0;
   const vnode = {
     __v_isVnode: true,
@@ -24,6 +29,7 @@ export function createVnode(type, props, children?) {
     key: props?.key, // diff算法后面需要的key
     el: null, // 虚拟节点需要对应的真实节点是谁
     shapeFlag,
+    ref: props?.ref,
   };
 
   if (children) {
