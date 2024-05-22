@@ -100,7 +100,7 @@ function isString(value) {
 var hasOwnProperty = Object.prototype.hasOwnProperty;
 var hasOwn = (value, key) => hasOwnProperty.call(value, key);
 
-// packages/runtime-core/src/Teleport.ts
+// packages/runtime-core/src/components/Teleport.ts
 var Teleport = {
   __isTeleport: true,
   remove(vnode, unmountChildren) {
@@ -833,7 +833,7 @@ function createRenderer(renderOptions2) {
     }
   };
   const mountElement = (vnode, container, anchor, parentComponent) => {
-    const { type, children, props, shapeFlag } = vnode;
+    const { type, children, props, shapeFlag, transition } = vnode;
     let el = vnode.el = hostCreateElement(type);
     if (props) {
       for (let key in props) {
@@ -845,7 +845,14 @@ function createRenderer(renderOptions2) {
     } else if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
       mountChildren(children, el, parentComponent);
     }
+    debugger;
+    if (transition) {
+      transition.beforeEnter(el);
+    }
     hostInsert(el, container, anchor);
+    if (transition) {
+      transition.enter(el);
+    }
   };
   const processElement = (n1, n2, container, anchor, parentComponent) => {
     if (n1 === null) {
@@ -1006,13 +1013,14 @@ function createRenderer(renderOptions2) {
     instance.next = null;
     instance.vnode = next;
     updataProps(instance, instance.props, next.props);
+    Object.assign(instance.slots, next.children);
   };
   function renderComponent(instance) {
-    const { render: render3, vnode, proxy, props, attrs } = instance;
+    const { render: render3, vnode, proxy, props, attrs, slots } = instance;
     if (vnode.shapeFlag & 4 /* STATEFUL_COMPONENT */) {
       return render3.call(proxy, proxy);
     } else {
-      return vnode.type(attrs);
+      return vnode.type(attrs, { slots });
     }
   }
   function setupRenderEffect(instance, container, anchor, parentComponent) {
@@ -1202,6 +1210,89 @@ function inject(key, defaultValue) {
   }
 }
 
+// packages/runtime-core/src/components/Transition.ts
+function nextFrame(fn) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(fn);
+  });
+}
+function resolveTransitionProps(props) {
+  const {
+    name = "v",
+    enterFromClass = `${name}-enter-from`,
+    enterActiveClass = `${name}-enter-active`,
+    enterToClass = `${name}-enter-to`,
+    leaveFromClass = `${name}-leave-from`,
+    leaveActiveClass = `${name}-leave-active`,
+    leaveToClass = `${name}-leave-to`,
+    onBeforeEnter,
+    onEnter,
+    onLeave
+  } = props;
+  return {
+    onBeforeEnter(el) {
+      onBeforeEnter && onBeforeEnter(el);
+      el.classList.add(enterFromClass);
+      el.classList.add(enterActiveClass);
+    },
+    onEnter(el, done) {
+      const resolve = () => {
+        el.classList.remove(enterToClass);
+        el.classList.remove(enterActiveClass);
+        done && done();
+      };
+      onEnter && onEnter(el, resolve);
+      nextFrame(() => {
+        el.classList.remove(enterFromClass);
+        el.classList.add(enterToClass);
+        if (!onEnter || onEnter.length <= 1) {
+          el.addEventListener("transitionEnd", resolve);
+        }
+      });
+    },
+    onLeave(el, done) {
+      const resolve = () => {
+        el.classList.remove(leaveActiveClass);
+        el.classList.remove(leaveToClass);
+        done && done();
+      };
+      onEnter && onEnter(el, resolve);
+      el.classList.add(leaveFromClass);
+      document.body.offsetHeight;
+      el.classList.add(leaveActiveClass);
+      nextFrame(() => {
+        el.classList.remove(leaveFromClass);
+        el.classList.add(leaveToClass);
+        if (!onLeave || onLeave.length <= 1) {
+          el.addEventListener("transitionEnd", resolve);
+        }
+      });
+    }
+  };
+}
+function Transition(props, { slots }) {
+  return h(BaseTranstionImpl, resolveTransitionProps(props), slots);
+}
+var BaseTranstionImpl = {
+  // 真正的组件 只需要渲染难的时候调用封装后的钩子即可
+  props: {
+    onBeforeEnter: Function,
+    onEnter: Function,
+    onLeave: Function
+  },
+  setup(props, { slots }) {
+    return () => {
+      const vnode = slots.default && slots.default();
+      if (!vnode) {
+        return;
+      }
+      vnode.transition = props;
+      debugger;
+      return vnode;
+    };
+  }
+};
+
 // packages/runtime-dom/src/index.ts
 var renderOptions = Object.assign({ patchProp }, nodeOps);
 var render = (vnode, container) => {
@@ -1213,6 +1304,7 @@ export {
   ReactiveEffect,
   Teleport,
   Text,
+  Transition,
   activeEffect,
   computed,
   createComponentInstance,
@@ -1239,6 +1331,7 @@ export {
   reactive,
   ref,
   render,
+  resolveTransitionProps,
   setCurrentInstance,
   setupComponent,
   toReactive,

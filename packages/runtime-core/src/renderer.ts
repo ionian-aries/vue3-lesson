@@ -38,7 +38,7 @@ export function createRenderer(renderOptions) {
     }
   };
   const mountElement = (vnode, container, anchor, parentComponent) => {
-    const { type, children, props, shapeFlag } = vnode;
+    const { type, children, props, shapeFlag, transition } = vnode;
 
     // 第一次渲染的时候我么让虚拟节点和真实的dom 创建关联 vnode.el = 真实dom
     // 第二次渲染新的vnode，可以和上一次的vnode做比对，之后更新对应的el元素，可以后续再复用这个dom元素
@@ -54,7 +54,17 @@ export function createRenderer(renderOptions) {
     } else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
       mountChildren(children, el, parentComponent);
     }
+    debugger;
+
+    if (transition) {
+      transition.beforeEnter(el);
+    }
+
     hostInsert(el, container, anchor);
+
+    if (transition) {
+      transition.enter(el);
+    }
     // hostCreateElement()
   };
 
@@ -308,16 +318,19 @@ export function createRenderer(renderOptions) {
     instance.next = null;
     instance.vnode = next; // instance.props
     updataProps(instance, instance.props, next.props);
+
+    // 组件更新的时候 需要更新插槽
+    Object.assign(instance.slots, next.children);
   };
 
   function renderComponent(instance) {
     // attrs , props  = 属性
-    const { render, vnode, proxy, props, attrs } = instance;
+    const { render, vnode, proxy, props, attrs, slots } = instance;
     if (vnode.shapeFlag & ShapeFlags.STATEFUL_COMPONENT) {
       return render.call(proxy, proxy);
     } else {
       // 此写法 不用使用了，vue3中没有任何性能优化
-      return vnode.type(attrs); // 函数式组件
+      return vnode.type(attrs, { slots }); // 函数式组件
     }
   }
   function setupRenderEffect(instance, container, anchor, parentComponent) {
