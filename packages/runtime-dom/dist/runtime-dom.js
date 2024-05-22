@@ -660,6 +660,8 @@ function createComponentInstance(vnode, parent) {
     setupState: {},
     exposed: null,
     parent,
+    ctx: {},
+    // 如果是keepAlive 组件，就将dom api放入到这个属性上
     // p1 -> p2 -> p3
     // 所有的组件provide的都一样
     provides: parent ? parent.provides : /* @__PURE__ */ Object.create(null)
@@ -805,6 +807,75 @@ function invokeArray(fns) {
   }
 }
 
+// packages/runtime-core/src/components/KeepAlive.ts
+var KeepAlive = {
+  __isKeepAlive: true,
+  props: {
+    max: Number
+  },
+  setup(props, { slots }) {
+    const { max } = props;
+    const keys = /* @__PURE__ */ new Set();
+    const cache = /* @__PURE__ */ new Map();
+    let pendingCacheKey = null;
+    const instance = getCurrentInstance();
+    const cacheSubTree = () => {
+      cache.set(pendingCacheKey, instance.subTree);
+    };
+    const { move, createElement, unmount: _unmount } = instance.ctx.renderer;
+    function reset(vnode) {
+      let shapeFlag = vnode.shapeFlag;
+      if (shapeFlag & 512 /* COMPONENT_KEPT_ALIVE */) {
+        shapeFlag -= 512 /* COMPONENT_KEPT_ALIVE */;
+      }
+      if (shapeFlag & 256 /* COMPONENT_SHOULD_KEEP_ALIVE */) {
+        shapeFlag -= 256 /* COMPONENT_SHOULD_KEEP_ALIVE */;
+      }
+      vnode.shapeFlag = shapeFlag;
+    }
+    function unmount(vnode) {
+      reset(vnode);
+      _unmount(vnode);
+    }
+    function purneCacheEntry(key) {
+      keys.delete(key);
+      const cached = cache.get(key);
+      unmount(cached);
+    }
+    instance.ctx.activate = function(vnode, container, anchor) {
+      move(vnode, container, anchor);
+    };
+    const storageContent = createElement("div");
+    instance.ctx.deactivate = function(vnode) {
+      move(vnode, storageContent, null);
+    };
+    onMounted(cacheSubTree);
+    onUpdated(cacheSubTree);
+    return () => {
+      const vnode = slots.default();
+      const comp = vnode.type;
+      const key = vnode.key == null ? comp : vnode.key;
+      const cacheVNode = cache.get(key);
+      pendingCacheKey = key;
+      if (cacheVNode) {
+        vnode.component = cacheVNode.component;
+        vnode.shapeFlag |= 512 /* COMPONENT_KEPT_ALIVE */;
+        keys.delete(key);
+        keys.add(key);
+      } else {
+        keys.add(key);
+        if (max && keys.size > max) {
+          debugger;
+          purneCacheEntry(keys.values().next().value);
+        }
+      }
+      vnode.shapeFlag |= 256 /* COMPONENT_SHOULD_KEEP_ALIVE */;
+      return vnode;
+    };
+  }
+};
+var isKeepAlive = (value) => value.type.__isKeepAlive;
+
 // packages/runtime-core/src/renderer.ts
 function createRenderer(renderOptions2) {
   const {
@@ -845,7 +916,6 @@ function createRenderer(renderOptions2) {
     } else if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
       mountChildren(children, el, parentComponent);
     }
-    debugger;
     if (transition) {
       transition.beforeEnter(el);
     }
@@ -871,13 +941,13 @@ function createRenderer(renderOptions2) {
       }
     }
   };
-  const unmountChildren = (children) => {
+  const unmountChildren = (children, parentComponent) => {
     for (let i = 0; i < children.length; i++) {
       let child = children[i];
-      unmount(child);
+      unmount(child, parentComponent);
     }
   };
-  const patchKeyedChildren = (c1, c2, el) => {
+  const patchKeyedChildren = (c1, c2, el, parentComponent) => {
     let i = 0;
     let e1 = c1.length - 1;
     let e2 = c2.length - 1;
@@ -914,7 +984,7 @@ function createRenderer(renderOptions2) {
     } else if (i > e2) {
       if (i <= e1) {
         while (i <= e1) {
-          unmount(c1[i]);
+          unmount(c1[i], parentComponent);
           i++;
         }
       }
@@ -932,7 +1002,7 @@ function createRenderer(renderOptions2) {
         const vnode = c1[i2];
         const newIndex = keyToNewIndexMap.get(vnode.key);
         if (newIndex == void 0) {
-          unmount(vnode);
+          unmount(vnode, parentComponent);
         } else {
           newIndexToOldMapIndex[newIndex - s2] = i2 + 1;
           patch(vnode, c2[newIndex], el);
@@ -963,7 +1033,7 @@ function createRenderer(renderOptions2) {
     const shapeFlag = n2.shapeFlag;
     if (shapeFlag & 8 /* TEXT_CHILDREN */) {
       if (prevShapeFlag & 16 /* ARRAY_CHILDREN */) {
-        unmountChildren(c1);
+        unmountChildren(c1, parentComponent);
       }
       if (c1 !== c2) {
         hostSetElementText(el, c2);
@@ -971,9 +1041,9 @@ function createRenderer(renderOptions2) {
     } else {
       if (prevShapeFlag & 16 /* ARRAY_CHILDREN */) {
         if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
-          patchKeyedChildren(c1, c2, el);
+          patchKeyedChildren(c1, c2, el, parentComponent);
         } else {
-          unmountChildren(c1);
+          unmountChildren(c1, parentComponent);
         }
       } else {
         if (prevShapeFlag & 8 /* TEXT_CHILDREN */) {
@@ -1012,7 +1082,7 @@ function createRenderer(renderOptions2) {
   const updateComponentPreRender = (instance, next) => {
     instance.next = null;
     instance.vnode = next;
-    updataProps(instance, instance.props, next.props);
+    updataProps(instance, instance.props, next.props || {});
     Object.assign(instance.slots, next.children);
   };
   function renderComponent(instance) {
@@ -1065,6 +1135,17 @@ function createRenderer(renderOptions2) {
       vnode,
       parentComponent
     );
+    if (isKeepAlive(vnode)) {
+      instance.ctx.renderer = {
+        createElement: hostCreateElement,
+        // 内部需要创建一个div来缓存dom
+        move(vnode2, container2, anchor2) {
+          hostInsert(vnode2.component.subTree.el, container2, anchor2);
+        },
+        unmount
+        // 如果组件切换需要将现在容器中的元素移除
+      };
+    }
     setupComponent(instance);
     setupRenderEffect(instance, container, anchor, parentComponent);
   };
@@ -1100,7 +1181,7 @@ function createRenderer(renderOptions2) {
       return true;
     if (prevProps === nextProps)
       return false;
-    return hasPropsChange(prevProps, nextProps);
+    return hasPropsChange(prevProps, nextProps || {});
   };
   const updateComponent = (n1, n2) => {
     const instance = n2.component = n1.component;
@@ -1111,7 +1192,11 @@ function createRenderer(renderOptions2) {
   };
   const processComponent = (n1, n2, container, anchor, parentComponent) => {
     if (n1 === null) {
-      mountComponent(n2, container, anchor, parentComponent);
+      if (n2.shapeFlag & 512 /* COMPONENT_KEPT_ALIVE */) {
+        parentComponent.ctx.activate(n2, container, anchor);
+      } else {
+        mountComponent(n2, container, anchor, parentComponent);
+      }
     } else {
       updateComponent(n1, n2);
     }
@@ -1121,7 +1206,7 @@ function createRenderer(renderOptions2) {
       return;
     }
     if (n1 && !isSameVnode(n1, n2)) {
-      unmount(n1);
+      unmount(n1, parentComponent);
       n1 = null;
     }
     const { type, shapeFlag, ref: ref2 } = n2;
@@ -1161,22 +1246,31 @@ function createRenderer(renderOptions2) {
       rawRef.value = value;
     }
   }
-  const unmount = (vnode) => {
-    const { shapeFlag } = vnode;
-    if (vnode.type === Fragment) {
-      unmountChildren(vnode.children);
+  const unmount = (vnode, parentComponent) => {
+    const { shapeFlag, transition, el } = vnode;
+    const performRemove = () => {
+      hostRemove(vnode.el);
+    };
+    if (shapeFlag & 256 /* COMPONENT_SHOULD_KEEP_ALIVE */) {
+      parentComponent.ctx.deactivate(vnode);
+    } else if (vnode.type === Fragment) {
+      unmountChildren(vnode.children, parentComponent);
     } else if (shapeFlag & 6 /* COMPONENT */) {
-      unmount(vnode.component.subTree);
+      unmount(vnode.component.subTree, parentComponent);
     } else if (shapeFlag & 64 /* TELEPORT */) {
       vnode.type.remove(vnode, unmountChildren);
     } else {
-      hostRemove(vnode.el);
+      if (transition) {
+        transition.leave(el, performRemove);
+      } else {
+        performRemove();
+      }
     }
   };
   const render2 = (vnode, container) => {
     if (vnode == null) {
       if (container._vnode) {
-        unmount(container._vnode);
+        unmount(container._vnode, null);
       }
     } else {
       patch(container._vnode || null, vnode, container);
@@ -1256,7 +1350,7 @@ function resolveTransitionProps(props) {
         el.classList.remove(leaveToClass);
         done && done();
       };
-      onEnter && onEnter(el, resolve);
+      onLeave && onLeave(el, resolve);
       el.classList.add(leaveFromClass);
       document.body.offsetHeight;
       el.classList.add(leaveActiveClass);
@@ -1264,7 +1358,7 @@ function resolveTransitionProps(props) {
         el.classList.remove(leaveFromClass);
         el.classList.add(leaveToClass);
         if (!onLeave || onLeave.length <= 1) {
-          el.addEventListener("transitionEnd", resolve);
+          el.addEventListener("transitionend", resolve);
         }
       });
     }
@@ -1286,8 +1380,11 @@ var BaseTranstionImpl = {
       if (!vnode) {
         return;
       }
-      vnode.transition = props;
-      debugger;
+      vnode.transition = {
+        beforeEnter: props.onBeforeEnter,
+        enter: props.onEnter,
+        leave: props.onLeave
+      };
       return vnode;
     };
   }
@@ -1300,6 +1397,7 @@ var render = (vnode, container) => {
 };
 export {
   Fragment,
+  KeepAlive,
   LifeCycles,
   ReactiveEffect,
   Teleport,
@@ -1317,6 +1415,7 @@ export {
   initSlots,
   inject,
   invokeArray,
+  isKeepAlive,
   isReactive,
   isRef,
   isSameVnode,

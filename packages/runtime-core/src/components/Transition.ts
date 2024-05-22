@@ -54,7 +54,7 @@ export function resolveTransitionProps(props) {
         el.classList.remove(leaveToClass);
         done && done();
       };
-      onEnter && onEnter(el, resolve);
+      onLeave && onLeave(el, resolve);
       el.classList.add(leaveFromClass); // 当前状态red   leaveFromyellow    加一个过渡  black
       document.body.offsetHeight; // 立刻绘制成黄色
       el.classList.add(leaveActiveClass);
@@ -65,7 +65,7 @@ export function resolveTransitionProps(props) {
 
         if (!onLeave || onLeave.length <= 1) {
           // 函数的参数个数
-          el.addEventListener("transitionEnd", resolve);
+          el.addEventListener("transitionend", resolve);
         }
       });
     },
@@ -74,7 +74,6 @@ export function resolveTransitionProps(props) {
 export function Transition(props, { slots }) {
   // 函数式组件的功能比较少，为了方便函数式组件处理了属性
   // 处理属性后传递给 状态组件 setup
-
   return h(BaseTranstionImpl, resolveTransitionProps(props), slots);
 }
 
@@ -93,9 +92,11 @@ const BaseTranstionImpl = {
       }
       // 渲染前 （离开）和 渲染后  （进入）
       // const oldVnode = instance.subTree; // 之前的虚拟节点
-      vnode.transition = props;
-
-      debugger;
+      vnode.transition = {
+        beforeEnter: props.onBeforeEnter,
+        enter: props.onEnter,
+        leave: props.onLeave,
+      };
       return vnode;
     };
   },
