@@ -136,7 +136,7 @@ function isVnode(value) {
 function isSameVnode(n1, n2) {
   return n1.type === n2.type && n1.key === n2.key;
 }
-function createVnode(type, props, children) {
+function createVnode(type, props, children, patchFlag) {
   const shapeFlag = isString(type) ? 1 /* ELEMENT */ : isTeleport(type) ? 64 /* TELEPORT */ : isObject(type) ? 4 /* STATEFUL_COMPONENT */ : isFunction(type) ? 2 /* FUNCTIONAL_COMPONENT */ : 0;
   const vnode = {
     __v_isVnode: true,
@@ -148,8 +148,12 @@ function createVnode(type, props, children) {
     el: null,
     // 虚拟节点需要对应的真实节点是谁
     shapeFlag,
-    ref: props?.ref
+    ref: props?.ref,
+    patchFlag
   };
+  if (currentBlock && patchFlag > 0) {
+    currentBlock.push(vnode);
+  }
   if (children) {
     if (Array.isArray(children)) {
       vnode.shapeFlag |= 16 /* ARRAY_CHILDREN */;
@@ -161,6 +165,25 @@ function createVnode(type, props, children) {
     }
   }
   return vnode;
+}
+var currentBlock = null;
+function openBlock() {
+  currentBlock = [];
+}
+function closeBlock() {
+  currentBlock = null;
+}
+function setupBlock(vnode) {
+  vnode.dynamicChildren = currentBlock;
+  closeBlock();
+  return vnode;
+}
+function createElementBlock(type, props, children, patchFlag) {
+  const vnode = createVnode(type, props, children, patchFlag);
+  return setupBlock(vnode);
+}
+function toDisplayString(value) {
+  return isString(value) ? value : value == null ? "" : isObject(value) ? JSON.stringify(value) : String(value);
 }
 
 // packages/runtime-core/src/h.ts
@@ -865,7 +888,6 @@ var KeepAlive = {
       } else {
         keys.add(key);
         if (max && keys.size > max) {
-          debugger;
           purneCacheEntry(keys.values().next().value);
         }
       }
@@ -890,17 +912,19 @@ function createRenderer(renderOptions2) {
     patchProp: hostPatchProp
   } = renderOptions2;
   const normalize = (children) => {
-    for (let i = 0; i < children.length; i++) {
-      if (typeof children[i] === "string" || typeof children[i] === "number") {
-        children[i] = createVnode(Text, null, String(children[i]));
+    if (Array.isArray(children)) {
+      for (let i = 0; i < children.length; i++) {
+        if (typeof children[i] === "string" || typeof children[i] === "number") {
+          children[i] = createVnode(Text, null, String(children[i]));
+        }
       }
     }
     return children;
   };
-  const mountChildren = (children, container, parentComponent) => {
+  const mountChildren = (children, container, anchor, parentComponent) => {
     normalize(children);
     for (let i = 0; i < children.length; i++) {
-      patch(null, children[i], container, parentComponent);
+      patch(null, children[i], container, anchor, parentComponent);
     }
   };
   const mountElement = (vnode, container, anchor, parentComponent) => {
@@ -914,7 +938,7 @@ function createRenderer(renderOptions2) {
     if (shapeFlag & 8 /* TEXT_CHILDREN */) {
       hostSetElementText(el, children);
     } else if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
-      mountChildren(children, el, parentComponent);
+      mountChildren(children, el, anchor, parentComponent);
     }
     if (transition) {
       transition.beforeEnter(el);
@@ -928,7 +952,7 @@ function createRenderer(renderOptions2) {
     if (n1 === null) {
       mountElement(n2, container, anchor, parentComponent);
     } else {
-      patchElement(n1, n2, container, parentComponent);
+      patchElement(n1, n2, container, anchor, parentComponent);
     }
   };
   const patchProps = (oldProps, newProps, el) => {
@@ -1026,7 +1050,7 @@ function createRenderer(renderOptions2) {
       }
     }
   };
-  const patchChildren = (n1, n2, el, parentComponent) => {
+  const patchChildren = (n1, n2, el, anchor, parentComponent) => {
     const c1 = n1.children;
     const c2 = normalize(n2.children);
     const prevShapeFlag = n1.shapeFlag;
@@ -1050,17 +1074,45 @@ function createRenderer(renderOptions2) {
           hostSetElementText(el, "");
         }
         if (shapeFlag & 16 /* ARRAY_CHILDREN */) {
-          mountChildren(c2, el, parentComponent);
+          mountChildren(c2, el, anchor, parentComponent);
         }
       }
     }
   };
-  const patchElement = (n1, n2, container, parentComponent) => {
+  const patchBlockChildren = (n1, n2, el, anchor, parentComponent) => {
+    for (let i = 0; i < n2.dynamicChildren.length; i++) {
+      patch(
+        n1.dynamicChildren[i],
+        n2.dynamicChildren[i],
+        el,
+        anchor,
+        parentComponent
+      );
+    }
+  };
+  const patchElement = (n1, n2, container, anchor, parentComponent) => {
     let el = n2.el = n1.el;
     let oldProps = n1.props || {};
     let newProps = n2.props || {};
-    patchProps(oldProps, newProps, el);
-    patchChildren(n1, n2, el, parentComponent);
+    const { patchFlag, dynamicChildren } = n2;
+    if (patchFlag) {
+      if (patchFlag & 4 /* STYLE */) {
+      }
+      if (patchFlag & 4 /* STYLE */) {
+      }
+      if (patchFlag & 1 /* TEXT */) {
+        if (n1.children !== n2.children) {
+          return hostSetElementText(el, n2.children);
+        }
+      }
+    } else {
+      patchProps(oldProps, newProps, el);
+    }
+    if (dynamicChildren) {
+      patchBlockChildren(n1, n2, el, anchor, parentComponent);
+    } else {
+      patchChildren(n1, n2, el, anchor, parentComponent);
+    }
   };
   const processText = (n1, n2, container) => {
     if (n1 == null) {
@@ -1072,11 +1124,11 @@ function createRenderer(renderOptions2) {
       }
     }
   };
-  const processFragment = (n1, n2, container, parentComponent) => {
+  const processFragment = (n1, n2, container, anchor, parentComponent) => {
     if (n1 == null) {
-      mountChildren(n2.children, container, parentComponent);
+      mountChildren(n2.children, container, anchor, parentComponent);
     } else {
-      patchChildren(n1, n2, container, parentComponent);
+      patchChildren(n1, n2, container, anchor, parentComponent);
     }
   };
   const updateComponentPreRender = (instance, next) => {
@@ -1215,7 +1267,7 @@ function createRenderer(renderOptions2) {
         processText(n1, n2, container);
         break;
       case Fragment:
-        processFragment(n1, n2, container, parentComponent);
+        processFragment(n1, n2, container, anchor, parentComponent);
         break;
       default:
         if (shapeFlag & 1 /* ELEMENT */) {
@@ -1390,6 +1442,76 @@ var BaseTranstionImpl = {
   }
 };
 
+// packages/runtime-core/src/defineAsyncComponent.ts
+function defineAsyncComponent(options) {
+  if (isFunction(options)) {
+    options = { loader: options };
+  }
+  return {
+    setup() {
+      const {
+        loader,
+        errorComponent,
+        timeout,
+        delay,
+        loadingComponent,
+        onError
+      } = options;
+      const loaded = ref(false);
+      const loading = ref(false);
+      const error = ref(false);
+      let loadingTimer = null;
+      if (delay) {
+        loadingTimer = setTimeout(() => {
+          loading.value = true;
+        }, delay);
+      }
+      let Comp = null;
+      let attempts = 0;
+      function loadFunc() {
+        return loader().catch((err) => {
+          if (onError) {
+            return new Promise((resolve, reject) => {
+              const retry = () => resolve(loadFunc());
+              const fail = () => reject(err);
+              onError(err, retry, fail, ++attempts);
+            });
+          } else {
+            throw err;
+          }
+        });
+      }
+      loadFunc().then((comp) => {
+        Comp = comp;
+        loaded.value = true;
+      }).catch((err) => {
+        error.value = err;
+      }).finally(() => {
+        loading.value = false;
+        clearTimeout(loadingTimer);
+      });
+      if (timeout) {
+        setTimeout(() => {
+          error.value = true;
+          throw new Error("\u7EC4\u4EF6\u52A0\u8F7D\u52A0\u8F7D\u5931\u8D25");
+        }, timeout);
+      }
+      const placeholder = h("div");
+      return () => {
+        if (loaded.value) {
+          return h(Comp);
+        } else if (error.value && errorComponent) {
+          return h(errorComponent);
+        } else if (loading.value && loadingComponent) {
+          return h(loadingComponent);
+        } else {
+          return placeholder;
+        }
+      };
+    }
+  };
+}
+
 // packages/runtime-dom/src/index.ts
 var renderOptions = Object.assign({ patchProp }, nodeOps);
 var render = (vnode, container) => {
@@ -1404,11 +1526,15 @@ export {
   Text,
   Transition,
   activeEffect,
+  closeBlock,
   computed,
   createComponentInstance,
+  createElementBlock,
+  createVnode as createElementVNode,
   createRenderer,
   createVnode,
   currentInstance,
+  defineAsyncComponent,
   effect,
   getCurrentInstance,
   h,
@@ -1425,6 +1551,7 @@ export {
   onBeforeUpdate,
   onMounted,
   onUpdated,
+  openBlock,
   provide,
   proxyRefs,
   reactive,
@@ -1432,7 +1559,9 @@ export {
   render,
   resolveTransitionProps,
   setCurrentInstance,
+  setupBlock,
   setupComponent,
+  toDisplayString,
   toReactive,
   toRef,
   toRefs,

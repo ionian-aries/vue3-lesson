@@ -85,7 +85,6 @@ export const KeepAlive = {
           // 说明达到了最大的缓存个数
 
           // set中的第一个元素
-          debugger;
           purneCacheEntry(keys.values().next().value);
         }
       }

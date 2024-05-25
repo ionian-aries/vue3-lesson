@@ -6,6 +6,7 @@ import { queueJob } from "./scheduler";
 import { createComponentInstance, setupComponent } from "./component";
 import { invokeArray } from "./apiLifecycle";
 import { isKeepAlive } from "./components/KeepAlive";
+import { PatchFlags } from "packages/shared/src/patchFlags";
 
 export function createRenderer(renderOptions) {
   // core中不关心如何渲染
@@ -23,19 +24,25 @@ export function createRenderer(renderOptions) {
   } = renderOptions;
 
   const normalize = (children) => {
-    for (let i = 0; i < children.length; i++) {
-      if (typeof children[i] === "string" || typeof children[i] === "number") {
-        children[i] = createVnode(Text, null, String(children[i]));
+    if (Array.isArray(children)) {
+      for (let i = 0; i < children.length; i++) {
+        if (
+          typeof children[i] === "string" ||
+          typeof children[i] === "number"
+        ) {
+          children[i] = createVnode(Text, null, String(children[i]));
+        }
       }
     }
+
     return children;
   };
 
-  const mountChildren = (children, container, parentComponent) => {
+  const mountChildren = (children, container, anchor, parentComponent) => {
     normalize(children);
     for (let i = 0; i < children.length; i++) {
       //  children[i] 可能是纯文本元素
-      patch(null, children[i], container, parentComponent);
+      patch(null, children[i], container, anchor, parentComponent);
     }
   };
   const mountElement = (vnode, container, anchor, parentComponent) => {
@@ -53,7 +60,7 @@ export function createRenderer(renderOptions) {
     if (shapeFlag & ShapeFlags.TEXT_CHILDREN) {
       hostSetElementText(el, children);
     } else if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
-      mountChildren(children, el, parentComponent);
+      mountChildren(children, el, anchor, parentComponent);
     }
 
     if (transition) {
@@ -73,7 +80,7 @@ export function createRenderer(renderOptions) {
       // 初始化操作
       mountElement(n2, container, anchor, parentComponent);
     } else {
-      patchElement(n1, n2, container, parentComponent);
+      patchElement(n1, n2, container, anchor, parentComponent);
     }
   };
 
@@ -238,7 +245,7 @@ export function createRenderer(renderOptions) {
     }
   };
 
-  const patchChildren = (n1, n2, el, parentComponent) => {
+  const patchChildren = (n1, n2, el, anchor, parentComponent) => {
     //  text  array  null
     const c1 = n1.children;
     const c2 = normalize(n2.children);
@@ -275,12 +282,23 @@ export function createRenderer(renderOptions) {
           hostSetElementText(el, "");
         }
         if (shapeFlag & ShapeFlags.ARRAY_CHILDREN) {
-          mountChildren(c2, el, parentComponent);
+          mountChildren(c2, el, anchor, parentComponent);
         }
       }
     }
   };
-  const patchElement = (n1, n2, container, parentComponent) => {
+  const patchBlockChildren = (n1, n2, el, anchor, parentComponent) => {
+    for (let i = 0; i < n2.dynamicChildren.length; i++) {
+      patch(
+        n1.dynamicChildren[i],
+        n2.dynamicChildren[i],
+        el,
+        anchor,
+        parentComponent
+      );
+    }
+  };
+  const patchElement = (n1, n2, container, anchor, parentComponent) => {
     // 1.比较元素的差异，肯定需要复用dom元素
     // 2.比较属性和元素的子节点
     let el = (n2.el = n1.el); // 对dom元素的复用
@@ -288,11 +306,36 @@ export function createRenderer(renderOptions) {
     let oldProps = n1.props || {};
     let newProps = n2.props || {};
 
-    // hostPatchProp 只针对某一个属性来处理  class style event attr
-    patchProps(oldProps, newProps, el);
+    // 在比较元素的时候 针对某个熟悉来去比较
+    const { patchFlag, dynamicChildren } = n2;
 
-    patchChildren(n1, n2, el, parentComponent);
+    if (patchFlag) {
+      if (patchFlag & PatchFlags.STYLE) {
+        //
+      }
+      if (patchFlag & PatchFlags.STYLE) {
+        //
+      }
+      if (patchFlag & PatchFlags.TEXT) {
+        // 只要文本是动态的只比较文本
+        if (n1.children !== n2.children) {
+          return hostSetElementText(el, n2.children);
+        }
+      }
+    } else {
+      // hostPatchProp 只针对某一个属性来处理  class style event attr
+      patchProps(oldProps, newProps, el);
+    }
+
+    if (dynamicChildren) {
+      // 线性比对
+      patchBlockChildren(n1, n2, el, anchor, parentComponent);
+    } else {
+      // 全量diff
+      patchChildren(n1, n2, el, anchor, parentComponent);
+    }
   };
+
   const processText = (n1, n2, container) => {
     if (n1 == null) {
       // 1.虚拟节点要关联真实节点
@@ -306,11 +349,11 @@ export function createRenderer(renderOptions) {
     }
   };
   // 渲染走这里，更新也走这里
-  const processFragment = (n1, n2, container, parentComponent) => {
+  const processFragment = (n1, n2, container, anchor, parentComponent) => {
     if (n1 == null) {
-      mountChildren(n2.children, container, parentComponent);
+      mountChildren(n2.children, container, anchor, parentComponent);
     } else {
-      patchChildren(n1, n2, container, parentComponent);
+      patchChildren(n1, n2, container, anchor, parentComponent);
     }
   };
 
@@ -493,7 +536,7 @@ export function createRenderer(renderOptions) {
         processText(n1, n2, container);
         break;
       case Fragment:
-        processFragment(n1, n2, container, parentComponent);
+        processFragment(n1, n2, container, anchor, parentComponent);
         break;
       default:
         if (shapeFlag & ShapeFlags.ELEMENT) {

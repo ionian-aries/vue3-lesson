@@ -26,127 +26,75 @@
       //   Teleport, // == render
       //   // Transition,
       //   KeepAlive,
-      // } from "/node_modules/@vue/runtime-dom/dist/runtime-dom.esm-browser.js";
+      //   defineAsyncComponent,
+      // } from "./runtime-dom.js";
+
+      // https://template-explorer.vuejs.org/
+
+      // 如果在编写vue3的时候： 你直接采用jsx 或者h的写法，得不到优化的
+      //
 
       import {
-        createRenderer,
+        renderList as _renderList,
+        Fragment as _Fragment,
+        openBlock as _openBlock,
+        createElementBlock as _createElementBlock,
+        toDisplayString as _toDisplayString,
+        createElementVNode as _createElementVNode,
         render,
-        Fragment,
+        reactive,
+        toRefs,
         h,
-        Text,
-        ref,
-        getCurrentInstance,
-        onMounted,
-        onBeforeMount,
-        onBeforeUpdate,
-        onUpdated,
-        provide,
-        inject,
-        Teleport, // == render
-        // Transition,
-        KeepAlive,
-      } from "./runtime-dom.js";
+      } from "/node_modules/vue/dist/vue.esm-browser.js";
 
-      // 缓存的是dom， keepalive缓存后不会重新渲染，而是复用原来的dom元素
-
-      // 1.组件不会被重新创建，会将上次的结果拿出来返回
-      // 2.组件不会被被卸载，而是将dom移除掉
-      // 3.内部需要缓存dom
-
-      let keepAliveProps = { max: 1 };
-      const A1 = {
-        a: "a1",
+      const MyComponent = {
         setup() {
-          onMounted(() => {
-            console.log("a1 mounted");
-          });
-          return () => {
-            return h("h1", "a1");
+          const state = reactive({ flag: true, a: 1, fruits: 10 });
+          setTimeout(() => {
+            state.flag = false;
+          }, 1000);
+          return {
+            ...toRefs(state),
           };
         },
-      };
-      const A2 = {
-        a: "a2",
-        setup() {
-          onMounted(() => {
-            console.log("a2 mounted");
-          });
-          return () => {
-            return h("h1", "a2");
-          };
+        render(_ctx) {
+          // proxyRefs
+          const vnode =
+            (_openBlock(),
+            _createElementBlock("div", null, [
+              _createElementVNode("div"),
+              (_openBlock(),
+              _createElementBlock(
+                _Fragment,
+                null,
+                _renderList(3, (item) => {
+                  return _createElementVNode(
+                    "div",
+                    null,
+                    _toDisplayString(item),
+                    1 /* TEXT */
+                  );
+                }),
+                64 /* STABLE_FRAGMENT */
+              )),
+            ]));
+          console.log(vnode);
+          return vnode;
         },
       };
-      const A3 = {
-        a: "a3",
-        setup() {
-          onMounted(() => {
-            console.log("a3 mounted");
-          });
-          return () => {
-            return h("h1", "a3");
-          };
-        },
-      };
-
-      render(
-        h(KeepAlive, keepAliveProps, {
-          default: () => h(A1, { key: "a1" }),
-        }),
-        app
-      );
-
-      setTimeout(() => {
-        render(
-          h(KeepAlive, keepAliveProps, {
-            default: () => h(A2, { key: "a2" }),
-          }),
-          app
-        );
-      }, 1000);
-
-      setTimeout(() => {
-        render(
-          h(KeepAlive, keepAliveProps, {
-            default: () => h(A1, { key: "a1" }),
-          }),
-          app
-        );
-      }, 2000);
-
-      setTimeout(() => {
-        render(
-          h(KeepAlive, keepAliveProps, {
-            default: () => h(A3, { key: "a3" }),
-          }),
-          app
-        );
-      }, 3000);
-
-      setTimeout(() => {
-        render(
-          h(KeepAlive, keepAliveProps, {
-            default: () => h(A2, { key: "a2" }),
-          }),
-          app
-        );
-      }, 4000);
-
-      // import {
-      //   render,
-      //   h,
-      //   Text,
-      //   Fragment,
-      //   ref, //   onMounted,
-      //   onBeforeMount,
-      //   onBeforeUpdate,
-      //   onUpdated,
-      //   onMounted,
-      //   getCurrentInstance,
-      //   provide,
-      //   inject,
-      //   Teleport,
-      //   Transition,
-      // } from "./runtime-dom.js";
+      render(h(MyComponent), app);
     </script>
+
+    <div>
+      -> block
+      <p v-if="flag">
+        <span>{{a}}</span>
+      </p>
+      <div v-else>
+        <span>{{a}}</span>
+      </div>
+    </div>
+
+    block -> <span>{{a}}</span> block -> <span>{{a}}</span>
   </body>
 </html>
