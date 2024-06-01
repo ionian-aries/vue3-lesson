@@ -10,8 +10,8 @@
       // 一般在工程化中使用， 因为运行时，对性能有要求
 
       // vue -> runtime-dom  -> runtime-core -> reactivity
-      import { parse } from "./compiler-core.js";
-      console.log(parse(`{{name}} abc <div>123</div>`));
+      import { parse, compile } from "./compiler-core.js";
+      console.log(compile(`<div></div>`));
     </script>
   </body>
 </html>

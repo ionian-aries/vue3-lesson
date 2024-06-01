@@ -1,51 +1,48 @@
-// packages/shared/src/index.ts
-function isString(value) {
-  return typeof value == "string";
-}
-function isSymbol(value) {
-  return typeof value == "symbol";
-}
-
 // packages/compiler-core/src/runtimeHelpers.ts
-var TO_DISPLAY_STRING = Symbol(`toDisplayString`);
-var CREATE_ELEMENT_VNODE = Symbol("createElementVNode");
-var CREATE_TEXT = Symbol(`createTextVNode`);
-var FRAGMENT = Symbol("FRAGMENT");
-var CREATE_ELEMENT_BLOCK = Symbol(`createElementBlock`);
-var OPEN_BLOCK = Symbol(`openBlock`);
+var TO_DISPLAY_STRING = Symbol("TO_DISPLAY_STRING");
+var CREATE_TEXT_VNODE = Symbol("CREATE_TEXT_VNODE");
+var CREATE_ELEMENT_VNODE = Symbol("CREATE_ELEMENT_VNODE");
+var OPEN_BLOCK = Symbol("OPEN_BLOCK");
+var CREATE_ELEMENT_BLOCK = Symbol("CREATE_ELEMENT_BLOCK");
+var Fragment = Symbol("Fragment");
 var helperNameMap = {
   [TO_DISPLAY_STRING]: "toDisplayString",
-  [CREATE_TEXT]: `createTextVNode`,
-  [CREATE_ELEMENT_VNODE]: "createElementVNode",
-  // 创建元素节点标识
-  [FRAGMENT]: "Fragment",
-  [OPEN_BLOCK]: `openBlock`,
-  // block处理
-  [CREATE_ELEMENT_BLOCK]: `createElementBlock`
+  [CREATE_TEXT_VNODE]: "createTextVnode",
+  [CREATE_ELEMENT_VNODE]: "createElementVnode",
+  [CREATE_ELEMENT_BLOCK]: "createElementBlock",
+  [OPEN_BLOCK]: "openBlock",
+  [Fragment]: "Fragment"
 };
 
 // packages/compiler-core/src/ast.ts
 function createCallExpression(context, args) {
-  let callee = context.helper(CREATE_TEXT);
+  let name = context.helper(CREATE_TEXT_VNODE);
   return {
-    callee,
+    // createTextVnode()
     type: 14 /* JS_CALL_EXPRESSION */,
-    arguments: args
+    arguments: args,
+    // createTextVnode(child,1)
+    callee: name
   };
 }
-function createObjectExpression(properties) {
+function createVnodeCall(context, tag, props, children) {
+  let name;
+  if (tag !== Fragment) {
+    name = context.helper(CREATE_ELEMENT_VNODE);
+  }
   return {
-    type: 15 /* JS_OBJECT_EXPRESSION */,
-    properties
-  };
-}
-function createVNodeCall(context, tag, props, children) {
-  context.helper(CREATE_ELEMENT_VNODE);
-  return {
+    // createTextVnode()
     type: 13 /* VNODE_CALL */,
+    callee: name,
     tag,
     props,
     children
+  };
+}
+function createObjectExpression(properies) {
+  return {
+    type: 15 /* JS_OBJECT_EXPRESSION */,
+    properies
   };
 }
 
@@ -267,28 +264,22 @@ function parse(template) {
 
 // packages/compiler-core/src/transform.ts
 function transformElement(node, context) {
-  if (node.type === 1 /* ELEMENT */) {
-    return function postTransformElement() {
-      let vnodeTag = `'${node.tag}'`;
+  if (1 /* ELEMENT */ == node.type) {
+    return function() {
+      let { tag, props, children } = node;
+      let vnodeTag = tag;
       let properties = [];
-      let props = node.props;
       for (let i = 0; i < props.length; i++) {
-        properties.push({
-          key: props[i].name,
-          value: props[i].value.content
-        });
+        properties.push({ key: props[i].name, value: props[i].value.content });
       }
-      const propsExpression = props.length > 0 ? createObjectExpression(properties) : null;
+      const propsExpression = properties.length > 0 ? createObjectExpression(properties) : null;
       let vnodeChildren = null;
-      if (node.children.length === 1) {
-        const child = node.children[0];
-        vnodeChildren = child;
-      } else {
-        if (node.children.length > 0) {
-          vnodeChildren = node.children;
-        }
+      if (children.length == 1) {
+        vnodeChildren = children[0];
+      } else if (children.length > 1) {
+        vnodeChildren = children;
       }
-      node.codegenNode = createVNodeCall(
+      node.codegenNode = createVnodeCall(
         context,
         vnodeTag,
         propsExpression,
@@ -298,14 +289,14 @@ function transformElement(node, context) {
   }
 }
 function isText(node) {
-  return node.type == 5 /* INTERPOLATION */ || node.type == 2 /* TEXT */;
+  return node.type === 5 /* INTERPOLATION */ || node.type === 2 /* TEXT */;
 }
 function transformText(node, context) {
-  if (node.type === 1 /* ELEMENT */ || node.type === 0 /* ROOT */) {
-    return () => {
-      let hasText = false;
+  if (1 /* ELEMENT */ == node.type || node.type === 0 /* ROOT */) {
+    return function() {
       const children = node.children;
-      let currentContainer = void 0;
+      let container = null;
+      let hasText = false;
       for (let i = 0; i < children.length; i++) {
         let child = children[i];
         if (isText(child)) {
@@ -313,19 +304,17 @@ function transformText(node, context) {
           for (let j = i + 1; j < children.length; j++) {
             const next = children[j];
             if (isText(next)) {
-              if (!currentContainer) {
-                currentContainer = children[i] = {
-                  // 合并表达式
+              if (!container) {
+                container = children[i] = {
                   type: 8 /* COMPOUND_EXPRESSION */,
-                  loc: child.loc,
                   children: [child]
                 };
               }
-              currentContainer.children.push(` + `, next);
+              container.children.push(`+`, next);
               children.splice(j, 1);
               j--;
             } else {
-              currentContainer = void 0;
+              container = null;
               break;
             }
           }
@@ -337,56 +326,49 @@ function transformText(node, context) {
       for (let i = 0; i < children.length; i++) {
         const child = children[i];
         if (isText(child) || child.type === 8 /* COMPOUND_EXPRESSION */) {
-          const callArgs = [];
-          callArgs.push(child);
+          const args = [];
+          args.push(child);
           if (child.type !== 2 /* TEXT */) {
-            callArgs.push(1 /* TEXT */ + "");
+            args.push(1 /* TEXT */);
           }
           children[i] = {
             type: 12 /* TEXT_CALL */,
-            // 最终需要变成createTextVnode() 增加patchFlag
+            // createTextVnode
             content: child,
-            loc: child.loc,
-            codegenNode: createCallExpression(context, callArgs)
-            // 创建表达式调用
+            codegenNode: createCallExpression(context, args)
+            // createTextVnode(内容，args)
           };
         }
       }
     };
   }
 }
-function transformExpression(node) {
-  if (node.type == 5 /* INTERPOLATION */) {
+function transformExpression(node, context) {
+  if (5 /* INTERPOLATION */ == node.type) {
     node.content.content = `_ctx.${node.content.content}`;
   }
 }
 function createTransformContext(root) {
   const context = {
     currentNode: root,
-    // 当前转化节点
     parent: null,
-    // 当前转化节点的父节点
-    nodeTransforms: [
-      // 转化方法
-      transformElement,
-      transformText,
-      transformExpression
-    ],
+    // createElementVnode  createTextVnode   toDisplayString
+    transformNode: [transformElement, transformText, transformExpression],
     helpers: /* @__PURE__ */ new Map(),
-    // 创建帮助映射表，记录调用方法次数
+    // createElementVnode 1
     helper(name) {
-      const count = context.helpers.get(name) || 0;
+      let count = context.helpers.get(name) || 0;
       context.helpers.set(name, count + 1);
       return name;
     },
     removeHelper(name) {
-      const count = context.helpers.get(name);
+      let count = context.helpers.get(name);
       if (count) {
-        const currentCount = count - 1;
-        if (!currentCount) {
+        let c = count - 1;
+        if (!c) {
           context.helpers.delete(name);
         } else {
-          context.helpers.set(name, currentCount);
+          context.helpers.set(name, c);
         }
       }
     }
@@ -395,201 +377,136 @@ function createTransformContext(root) {
 }
 function traverseNode(node, context) {
   context.currentNode = node;
-  const exitsFns = [];
-  const transforms = context.nodeTransforms;
+  const transforms = context.transformNode;
+  const exits = [];
   for (let i2 = 0; i2 < transforms.length; i2++) {
-    let onExit = transforms[i2](node, context);
-    if (onExit) {
-      exitsFns.push(onExit);
-    }
+    let exit = transforms[i2](node, context);
+    exit && exits.push(exit);
   }
   switch (node.type) {
-    case 5 /* INTERPOLATION */:
-      context.helper(TO_DISPLAY_STRING);
-      break;
-    case 1 /* ELEMENT */:
     case 0 /* ROOT */:
+    case 1 /* ELEMENT */:
       for (let i2 = 0; i2 < node.children.length; i2++) {
         context.parent = node;
         traverseNode(node.children[i2], context);
       }
+      break;
+    case 5 /* INTERPOLATION */:
+      context.helper(TO_DISPLAY_STRING);
+      break;
   }
   context.currentNode = node;
-  let i = exitsFns.length;
-  while (i--) {
-    exitsFns[i]();
-  }
-}
-function createRootCodegen(root, context) {
-  let { children } = root;
-  if (children.length == 1) {
-    const child = children[0];
-    if (child.type === 1 /* ELEMENT */ && child.codegenNode) {
-      const codegenNode = child.codegenNode;
-      root.codegenNode = codegenNode;
-      context.removeHelper(CREATE_ELEMENT_VNODE);
-      context.helper(OPEN_BLOCK);
-      context.helper(CREATE_ELEMENT_BLOCK);
-      root.codegenNode.isBlock = true;
-    } else {
-      root.codegenNode = child;
+  let i = exits.length;
+  if (i > 0) {
+    while (i--) {
+      exits[i]();
     }
-  } else {
-    root.codegenNode = createVNodeCall(
-      context,
-      context.helper(FRAGMENT),
-      void 0,
-      root.children
-    );
-    context.helper(OPEN_BLOCK);
-    context.helper(CREATE_ELEMENT_BLOCK);
-    root.codegenNode.isBlock = true;
   }
 }
-function transform(root) {
-  let context = createTransformContext(root);
-  traverseNode(root, context);
-  createRootCodegen(root, context);
-  root.helpers = [...context.helpers.keys()];
+function createRootCodegenNode(ast, context) {
+  let { children } = ast;
+  if (children.length == 1) {
+    let child = children[0];
+    if (child.type === 1 /* ELEMENT */) {
+      ast.codegenNode = child.codegenNode;
+      context.removeHelper(CREATE_ELEMENT_VNODE);
+      context.helper(CREATE_ELEMENT_BLOCK);
+      context.helper(OPEN_BLOCK);
+      ast.codegenNode.isBlock = true;
+    } else {
+      ast.codegenNode = child;
+    }
+  } else if (children.length > 0) {
+    ast.codegenNode = createVnodeCall(
+      context,
+      context.helper(Fragment),
+      void 0,
+      children
+    );
+    context.helper(CREATE_ELEMENT_BLOCK);
+    context.helper(OPEN_BLOCK);
+    ast.codegenNode.isBlock = true;
+  }
 }
-var transform_default = transform;
+function transform(ast) {
+  const context = createTransformContext(ast);
+  traverseNode(ast, context);
+  createRootCodegenNode(ast, context);
+  ast.helpers = [...context.helpers.keys()];
+}
 
 // packages/compiler-core/src/index.ts
-function createCodegeContext() {
+function createCodegenContext(ast) {
   const context = {
     code: ``,
-    indentLevel: 0,
-    helper(key) {
-      return `_${helperNameMap[key]}`;
+    level: 0,
+    helper(name) {
+      return "_" + helperNameMap[name];
     },
     push(code) {
       context.code += code;
     },
     indent() {
-      newline(++context.indentLevel);
+      newLine(++context.level);
     },
-    deindent(withoutnewline = false) {
-      if (withoutnewline) {
-        --context.indentLevel;
+    deindent(noNewLine = false) {
+      if (noNewLine) {
+        --context.level;
       } else {
-        newline(--context.indentLevel);
+        newLine(--context.level);
       }
     },
-    newline() {
-      newline(context.indentLevel);
+    newLine() {
+      newLine(context.level);
     }
-    // 换行
   };
-  function newline(n) {
+  function newLine(n) {
     context.push("\n" + `  `.repeat(n));
   }
   return context;
 }
 function genFunctionPreamble(ast, context) {
-  const { push, newline } = context;
+  const { push, indent, deindent, newLine } = context;
   if (ast.helpers.length > 0) {
+    console.log(ast.helpers);
     push(
-      `const {${ast.helpers.map((s) => `${helperNameMap[s]}:_${helperNameMap[s]}`).join(", ")}} = Vue`
+      `const {${ast.helpers.map(
+        (item) => `${helperNameMap[item]}:${context.helper(item)}`
+      )}} = Vue`
     );
+    newLine();
   }
-  newline();
-  push(`return `);
+  push(`return function render(_ctx){`);
 }
 function genText(node, context) {
   context.push(JSON.stringify(node.content));
 }
 function genInterpolation(node, context) {
-  const { push, helper } = context;
+  const { push, indent, deindent, newLine, helper } = context;
   push(`${helper(TO_DISPLAY_STRING)}(`);
   genNode(node.content, context);
   push(`)`);
 }
-function genNodeList(nodes, context) {
-  const { push } = context;
-  for (let i = 0; i < nodes.length; i++) {
-    const node = nodes[i];
-    if (isString(node)) {
-      push(`${node}`);
-    } else if (Array.isArray(node)) {
-      genNodeList(node, context);
-    } else {
-      genNode(node, context);
-    }
-    if (i < nodes.length - 1) {
-      push(", ");
-    }
-  }
+function genExpression(node, context) {
+  context.push(node.content);
 }
-function genVNodeCall(node, context) {
-  const { push, helper } = context;
+function genVnodeCall(node, context) {
+  const { push, indent, deindent, newLine, helper } = context;
   const { tag, props, children, isBlock } = node;
-  if (isBlock) {
+  if (node.isBlock) {
     push(`(${helper(OPEN_BLOCK)}(),`);
   }
-  const callHelper = isBlock ? CREATE_ELEMENT_BLOCK : CREATE_ELEMENT_VNODE;
-  push(helper(callHelper));
-  push("(");
-  genNodeList(
-    [tag, props, children].map((item) => item || "null"),
-    context
-  );
-  push(`)`);
-  if (isBlock) {
+  const h = isBlock ? CREATE_ELEMENT_BLOCK : CREATE_ELEMENT_VNODE;
+  push(`${helper(h)}(`);
+  [tag, props, children];
+  if (node.isBlock) {
     push(`)`);
   }
-}
-function genExpression(node, context) {
-  const { content } = node;
-  context.push(content);
-}
-function genObjectExpression(node, context) {
-  const { push, newline } = context;
-  const { properties } = node;
-  if (!properties.length) {
-    push(`{}`);
-    return;
-  }
-  push("{");
-  for (let i = 0; i < properties.length; i++) {
-    const { key, value } = properties[i];
-    push(key);
-    push(`: `);
-    push(JSON.stringify(value));
-    if (i < properties.length - 1) {
-      push(`,`);
-    }
-  }
-  push("}");
-}
-function genCompoundExpression(node, context) {
-  for (let i = 0; i < node.children.length; i++) {
-    const child = node.children[i];
-    if (isString(child)) {
-      context.push(child);
-    } else {
-      genNode(child, context);
-    }
-  }
-}
-function genCallExpression(node, context) {
-  const { push, helper } = context;
-  const callee = helper(node.callee);
-  push(callee + `(`, node);
-  genNodeList(node.arguments, context);
   push(`)`);
 }
 function genNode(node, context) {
-  if (isSymbol(node)) {
-    context.push(context.helper(node));
-    return;
-  }
+  const { push, indent, deindent, newLine } = context;
   switch (node.type) {
-    case 15 /* JS_OBJECT_EXPRESSION */:
-      genObjectExpression(node, context);
-      break;
-    case 13 /* VNODE_CALL */:
-      genVNodeCall(node, context);
-      break;
     case 2 /* TEXT */:
       genText(node, context);
       break;
@@ -599,33 +516,21 @@ function genNode(node, context) {
     case 4 /* SIMPLE_EXPRESSION */:
       genExpression(node, context);
       break;
-    case 1 /* ELEMENT */:
-      genNode(node.codegenNode, context);
-      break;
-    case 8 /* COMPOUND_EXPRESSION */:
-      genCompoundExpression(node, context);
-      break;
-    case 14 /* JS_CALL_EXPRESSION */:
-      genCallExpression(node, context);
-      break;
-    case 12 /* TEXT_CALL */:
-      genNode(node.codegenNode, context);
+    case 13 /* VNODE_CALL */:
+      genVnodeCall(node, context);
       break;
   }
 }
 function generate(ast) {
-  const context = createCodegeContext();
-  const { push, indent, deindent } = context;
+  const context = createCodegenContext(ast);
   genFunctionPreamble(ast, context);
-  const functionName = "render";
-  const args = ["_ctx", "$props"];
-  push(`function ${functionName}(${args.join(", ")}){`);
+  const { push, indent, deindent, newLine } = context;
   indent();
   push(`return `);
   if (ast.codegenNode) {
     genNode(ast.codegenNode, context);
   } else {
-    push(`null`);
+    push("null");
   }
   deindent();
   push(`}`);
@@ -633,7 +538,7 @@ function generate(ast) {
 }
 function compile(template) {
   const ast = parse(template);
-  transform_default(ast);
+  transform(ast);
   return generate(ast);
 }
 export {
