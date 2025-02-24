@@ -10,6 +10,7 @@ function createReactiveObject(target) {
   if (!isObject(target)) {
     return target;
   }
+  // 判断是否已经被代理过，已经被代理过，读取值时，会走到mutableHandlers的get中，在get中做个特殊判断，返回true，实现此功能
   if (target[ReactiveFlags.IS_REACTIVE]) {
     return target;
   }
@@ -18,6 +19,7 @@ function createReactiveObject(target) {
   if (exitsProxy) {
     return exitsProxy;
   }
+  // ！！核心就是创建一个proxy，其他的都是处理边界情况
   let proxy = new Proxy(target, mutableHandlers);
   // 根据对象缓存 代理后的结果
   reactiveMap.set(target, proxy);

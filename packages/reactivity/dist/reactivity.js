@@ -11,7 +11,6 @@ function effect(fn, options) {
   runner.effect = _effect;
   return runner;
 }
-var activeEffect;
 function preCleanEffect(effect2) {
   effect2._depsLength = 0;
   effect2._trackId++;
@@ -24,10 +23,11 @@ function postCleanEffect(effect2) {
     effect2.deps.length = effect2._depsLength;
   }
 }
+var activeEffect;
 var ReactiveEffect = class {
-  // 创建的effect是响应式的
-  // fn 用户编写的函数
-  // 如果fn中依赖的数据发生变化后，需要重新调用 -> run()
+  // 加点状态，创建的effect是否时响应式的，更改此属性，可以停用响应式
+  // fn： 用户编写的函数
+  // scheduler： 调度函数，如果fn中依赖的数据发生变化后，需要重新调用 -> run()
   constructor(fn, scheduler) {
     this.fn = fn;
     this.scheduler = scheduler;
@@ -37,6 +37,7 @@ var ReactiveEffect = class {
     this._running = 0;
     this._dirtyLevel = 4 /* Dirty */;
     this.deps = [];
+    // 还想记录effect和dep的关联关系
     this.active = true;
   }
   get dirty() {

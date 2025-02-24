@@ -10,13 +10,11 @@ export const mutableHandlers: ProxyHandler<any> = {
       return true;
     }
     // 当取值的时候  应该让响应式属性 和 effect 映射起来
-    // 依赖收集 todo...
-
+    // 依赖收集
     track(target, key); // 收集这个对象上的这个属性，和effect关联在一起
-    // console.log(activeEffect, key);
+    // 怎么做呢？=> 把effect当成全局变量
 
-    // state.address
-
+    // ！！proxy需要使用reflect使用
     let res = Reflect.get(target, key, recevier);
     if (isObject(res)) {
       // 当取的值也是对象的时候，我需要对这个对象在进行代理，递归代理
@@ -27,15 +25,15 @@ export const mutableHandlers: ProxyHandler<any> = {
   },
   set(target, key, value, recevier) {
     // 找到属性 让对应的effect重新执行
-
     let oldValue = target[key];
 
+    // ！！proxy需要使用reflect使用
     let result = Reflect.set(target, key, value, recevier);
     if (oldValue !== value) {
       // 需要触发页面更新
       trigger(target, key, value, oldValue);
     }
-    // 触发更新 todo...
+    // 触发更新
     return result;
   },
 };

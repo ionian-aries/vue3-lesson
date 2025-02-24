@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // 原生的
+      //   import {
+      //     reactive,
+      //     effect
+      //   } from "/node_modules/@vue/reactivity/dist/reactivity.js"
+      import {
+        reactive,
+        effect
+      } from "./reactivity.js"
+
+      const state = reactive({
+        name: "小明",
+        age: 18
+      })
+
+      // reactive: 让数据变成响应式
+      // effect：副作用，数据变化过后，effect会自动重新执行，所以组件，watch，computed等都是是基于effect实现的
+ 
+      const app = document.getElementById("app")
+
+      const runner = effect(
+        () => {
+          app.innerHTML = `${state.name}今年${state.age}岁`
+        },
+        {
+          scheduler: () => {
+            console.log("数据更新，走定制化逻辑")
+            runner()
+          }
+        }
+      )
+
+      // debugger
+      setTimeout(() => {
+        state.age++
+      }, 1000)
+    </script>
+  </body>
+</html>
