@@ -12,8 +12,8 @@ export function effect(fn, options?) {
   if (options) {
     Object.assign(_effect, options); // 用用户传递的覆盖掉内置的
   }
-
-  const runner = _effect.run.bind(_effect);
+  // 确保runner的this指向_effect
+  const runner = _effect.run.bind(_effect); 
   runner.effect = _effect; // 可以在run方法上获取到effect的引用（effect在run方法中获取到自己）
   return runner; // 外界可以自己让其重新run
 }
@@ -134,7 +134,8 @@ export function triggerEffects(dep) {
   for (const effect of dep.keys()) {
     // 当前这个值是不脏的，但是触发更新需要将值变为脏值
 
-    // 属性依赖了计算属性， 需要让计算属性的drity在变为true
+    // 属性依赖了计算属性， 需要让计算属性的dirty在变为true
+    // 每次修改了依赖的值，就会把dirty变为true
     if (effect._dirtyLevel < DirtyLevels.Dirty) {
       effect._dirtyLevel = DirtyLevels.Dirty;
     }

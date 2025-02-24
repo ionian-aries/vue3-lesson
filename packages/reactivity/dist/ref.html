@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0" />
+    <title>Document</title>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module">
+      // 原生的
+      import {
+        ref,
+        reactive,
+        effect
+      } from "/node_modules/@vue/reactivity/dist/reactivity.js"
+      // import {
+      //   reactive,
+      //   effect
+      // } from "./reactivity.js"
+
+      // const state = ref(2)
+      const state = ref({ name: "jw" })
+
+      setTimeout(() => {
+        // state.value++
+        state.name = "jw++"
+        console.log("state", state)
+      }, 1000)
+    </script>
+  </body>
+</html>

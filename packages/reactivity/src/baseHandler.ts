@@ -5,7 +5,7 @@ import { ReactiveFlags } from "./constants";
 
 // proxy  需要搭配 reflect 来使用
 export const mutableHandlers: ProxyHandler<any> = {
-  get(target, key, recevier) {
+  get(target, key, receiver) {
     if (key === ReactiveFlags.IS_REACTIVE) {
       return true;
     }
@@ -15,7 +15,7 @@ export const mutableHandlers: ProxyHandler<any> = {
     // 怎么做呢？=> 把effect当成全局变量
 
     // ！！proxy需要使用reflect使用
-    let res = Reflect.get(target, key, recevier);
+    let res = Reflect.get(target, key, receiver);
     if (isObject(res)) {
       // 当取的值也是对象的时候，我需要对这个对象在进行代理，递归代理
       return reactive(res);
@@ -23,12 +23,12 @@ export const mutableHandlers: ProxyHandler<any> = {
 
     return res;
   },
-  set(target, key, value, recevier) {
+  set(target, key, value, receiver) {
     // 找到属性 让对应的effect重新执行
     let oldValue = target[key];
 
-    // ！！proxy需要使用reflect使用
-    let result = Reflect.set(target, key, value, recevier);
+    // ！！proxy需要使用reflect使用，来保证this指向正确
+    let result = Reflect.set(target, key, value, receiver);
     if (oldValue !== value) {
       // 需要触发页面更新
       trigger(target, key, value, oldValue);

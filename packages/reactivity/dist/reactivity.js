@@ -150,20 +150,20 @@ function trigger(target, key, newValue, oldValue) {
 
 // packages/reactivity/src/baseHandler.ts
 var mutableHandlers = {
-  get(target, key, recevier) {
+  get(target, key, receiver) {
     if (key === "__v_isReactive" /* IS_REACTIVE */) {
       return true;
     }
     track(target, key);
-    let res = Reflect.get(target, key, recevier);
+    let res = Reflect.get(target, key, receiver);
     if (isObject(res)) {
       return reactive(res);
     }
     return res;
   },
-  set(target, key, value, recevier) {
+  set(target, key, value, receiver) {
     let oldValue = target[key];
-    let result = Reflect.set(target, key, value, recevier);
+    let result = Reflect.set(target, key, value, receiver);
     if (oldValue !== value) {
       trigger(target, key, value, oldValue);
     }
@@ -210,6 +210,7 @@ var RefImpl = class {
   constructor(rawValue) {
     this.rawValue = rawValue;
     this.__v_isRef = true;
+    this.rawValue = rawValue;
     this._value = toReactive(rawValue);
   }
   get value() {
@@ -229,6 +230,7 @@ function trackRefValue(ref2) {
     trackEffect(
       activeEffect,
       ref2.dep = ref2.dep || createDep(() => ref2.dep = void 0, "undefined")
+      // 当前ref的dep
     );
   }
 }
@@ -270,11 +272,13 @@ function proxyRefs(objectWithRef) {
     },
     set(target, key, value, receiver) {
       const oldValue = target[key];
-      if (oldValue.__v_isRef) {
-        oldValue.value = value;
-        return true;
-      } else {
-        return Reflect.set(target, key, value, receiver);
+      if (oldValue !== value) {
+        if (oldValue.__v_isRef) {
+          oldValue.value = value;
+          return true;
+        } else {
+          return Reflect.set(target, key, value, receiver);
+        }
       }
     }
   });
@@ -341,6 +345,7 @@ function traverse(source, depth, currentDepth = 0, seen = /* @__PURE__ */ new Se
   if (seen.has(source)) {
     return source;
   }
+  seen.add(source);
   for (let key in source) {
     traverse(source[key], depth, currentDepth, seen);
   }
@@ -376,14 +381,12 @@ function doWatch(source, cb, { deep, immediate }) {
       effect2.run();
     }
   };
-  console.log(getter.toString());
   const effect2 = new ReactiveEffect(getter, job);
   if (cb) {
     if (immediate) {
       job();
     } else {
       oldValue = effect2.run();
-      console.log(oldValue, "oldValue");
     }
   } else {
     effect2.run();

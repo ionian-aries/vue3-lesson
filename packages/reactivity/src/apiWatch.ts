@@ -9,7 +9,7 @@ export function watch(source, cb, options = {} as any) {
 }
 
 export function watchEffect(source, options = {}) {
-  // 没有 cb 就是watchEffect
+  // 没有 cb 就是watchEffect，依赖更新，直接重新执行getter！！！
   return doWatch(source, null, options as any);
 }
 // 控制 depth 已经当前遍历到了那一层
@@ -26,10 +26,12 @@ function traverse(source, depth, currentDepth = 0, seen = new Set()) {
   if (seen.has(source)) {
     return source;
   }
+  seen.add(source);
   for (let key in source) {
+    // 遍历就会触发每个属性的get,主动触发get的依赖收集
     traverse(source[key], depth, currentDepth, seen);
   }
-  return source; // 遍历就会触发每个属性的get
+  return source; 
 }
 
 function doWatch(source, cb, { deep, immediate }) {
@@ -71,7 +73,7 @@ function doWatch(source, cb, { deep, immediate }) {
     }
   };
 
-  console.log(getter.toString());
+  // console.log(getter.toString());
   const effect = new ReactiveEffect(getter, job);
 
   if (cb) {
@@ -79,14 +81,15 @@ function doWatch(source, cb, { deep, immediate }) {
       // 立即先执行一次用户的回调，传递新值和老值
       job();
     } else {
-      oldValue = effect.run();
-      console.log(oldValue, "oldValue");
+      oldValue = effect.run(); // 第一次执行，获取到老值
+      // console.log(oldValue, "oldValue");
     }
   } else {
     // watchEffect
     effect.run(); // 直接执行即可
   }
 
+  // 创建一个可以解除watch的函数
   const unwatch = () => {
     effect.stop();
   };
